@@ -2,8 +2,6 @@
 """
 بوت تذاكر (Tickets) بالديسكورد - Melaad Support
 مبني بـ discord.py
-
-قبل التشغيل لازم تعبي القيم بقسم الإعدادات (CONFIG) تحت.
 """
 
 import os
@@ -17,7 +15,6 @@ from discord.ext import commands
 # =========================================================
 
 def _clean_id(raw: str):
-    """ينضف قيمة آيدي جاية من Environment Variable"""
     if not raw:
         return None
     cleaned = raw.strip().strip("<>").strip()
@@ -38,9 +35,10 @@ STAFF_ROLE_ID = _clean_id(os.getenv("STAFF_ROLE_ID")) or 1535668575585566871
 SPECIAL_ADMIN_ID = _clean_id(os.getenv("SPECIAL_ADMIN_ID")) or 920981254554406952
 PANEL_IMAGE_URL = os.getenv("PANEL_IMAGE_URL", "")
 
-TICKET_ICON_EMOJI = os.getenv("TICKET_ICON_EMOJI", "🎫")
-CLAIM_EMOJI = os.getenv("CLAIM_EMOJI", "🔒")
-DELETE_EMOJI = os.getenv("DELETE_EMOJI", "🗑️")
+# الإيموجيات المخصصة للأزرار
+TICKET_ICON_EMOJI = os.getenv("TICKET_ICON_EMOJI", "<:ticketss:1536008761175572520>")
+CLAIM_EMOJI = os.getenv("CLAIM_EMOJI", "<:claim:1536007978090500096>")
+DELETE_EMOJI = os.getenv("DELETE_EMOJI", "<:delete:1536007930325770340>")
 
 if not BOT_TOKEN:
     raise RuntimeError("لازم تعبي متغير BOT_TOKEN بلوحة تحكم Railway (Variables).")
@@ -74,14 +72,6 @@ def parse_topic(topic: str):
             k, v = part.split(":", 1)
             data[k.strip()] = v.strip()
     return data
-
-
-TYPE_LABELS = {
-    "inquiry": "استفسار",
-    "complaint": "شكوى",
-    "help": "مساعدة",
-    "special": "رتب خاصة",
-}
 
 
 # =========================================================
