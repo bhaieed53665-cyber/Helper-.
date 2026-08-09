@@ -1,11 +1,13 @@
 # -*- coding: utf-8 -*-
 """
 بوت تذاكر (Tickets) بالديسكورد - Melaad Support
-مبني بـ discord.py
+مبني بـ discord.py مع نظام Logs و HTML Transcripts
 """
 
 import os
+import io
 import asyncio
+import datetime
 import discord
 from discord import app_commands
 from discord.ext import commands
@@ -33,6 +35,7 @@ GUILD_ID = _clean_id(os.getenv("GUILD_ID"))
 TICKET_CATEGORY_ID = _clean_id(os.getenv("TICKET_CATEGORY_ID"))
 STAFF_ROLE_ID = _clean_id(os.getenv("STAFF_ROLE_ID")) or 1535668575585566871
 SPECIAL_ADMIN_ID = _clean_id(os.getenv("SPECIAL_ADMIN_ID")) or 920981254554406952
+LOG_CHANNEL_ID = _clean_id(os.getenv("LOG_CHANNEL_ID")) or 1281894208550076477
 PANEL_IMAGE_URL = os.getenv("PANEL_IMAGE_URL", "")
 
 # الإيموجيات المخصصة للأزرار
@@ -50,6 +53,7 @@ if not BOT_TOKEN:
 intents = discord.Intents.default()
 intents.members = True
 intents.guilds = True
+intents.message_content = True  # تفعيل للتمكن من قراءة الرسائل وحفظ اللوج
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
@@ -72,6 +76,57 @@ def parse_topic(topic: str):
             k, v = part.split(":", 1)
             data[k.strip()] = v.strip()
     return data
+
+
+async def generate_html_transcript(channel: discord.TextChannel) -> discord.File:
+    """تنشئ ملف HTML منسق يحتوي على جميع الرسائل والصور داخل التذكرة"""
+    messages = []
+    async for msg in channel.history(limit=None, oldest_first=True):
+        messages.append(msg)
+
+    html_content = f"""
+    <!DOCTYPE html>
+    <html lang="ar" dir="rtl">
+    <head>
+        <meta charset="UTF-8">
+        <title>سجل تذكرة - {channel.name}</title>
+        <style>
+            body {{ font-family: Arial, sans-serif; background-color: #36393f; color: #dcddde; padding: 20px; }}
+            .header {{ border-bottom: 2px solid #000; padding-bottom: 10px; margin-bottom: 20px; }}
+            .message {{ background-color: #2f3136; padding: 10px; margin-bottom: 10px; border-radius: 5px; }}
+            .author {{ font-weight: bold; color: #5865f2; }}
+            .time {{ font-size: 0.8em; color: #72767d; margin-right: 10px; }}
+            .content {{ margin-top: 5px; white-space: pre-wrap; }}
+            .attachment {{ margin-top: 5px; color: #00aff4; }}
+        </style>
+    </head>
+    <body>
+        <div class="header">
+            <h2>سجل المحادثة للتذكرة: {channel.name}</h2>
+            <p>تاريخ الأرشفة: {datetime.datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC</p>
+        </div>
+    """
+
+    for msg in messages:
+        time_str = msg.created_at.strftime("%Y-%m-%d %H:%M:%S")
+        content = discord.utils.escape_mentions(msg.content) if msg.content else ""
+        attachments_html = ""
+        for att in msg.attachments:
+            attachments_html += f'<div class="attachment"><a href="{att.url}" target="_blank">مرفق: {att.filename}</a></div>'
+
+        html_content += f"""
+        <div class="message">
+            <span class="author">{msg.author.display_name} ({msg.author})</span>
+            <span class="time">{time_str}</span>
+            <div class="content">{content}</div>
+            {attachments_html}
+        </div>
+        """
+
+    html_content += "</body></html>"
+    
+    file_bytes = io.BytesIO(html_content.encode("utf-8"))
+    return discord.File(file_bytes, filename=f"transcript-{channel.name}.html")
 
 
 # =========================================================
@@ -101,6 +156,18 @@ class TicketActionsView(discord.ui.View):
         await interaction.message.edit(view=self)
         await interaction.response.send_message(f"تم استلام هذه التذكرة من قبل {interaction.user.mention}.")
 
+        # إرسال إشعار بالاستلام لقناة اللوق
+        log_channel = interaction.guild.get_channel(LOG_CHANNEL_ID)
+        if log_channel:
+            embed = discord.Embed(
+                title="📌 تم استلام تذكرة",
+                color=discord.Color.blue(),
+                timestamp=datetime.datetime.utcnow()
+            )
+            embed.add_field(name="القناة", value=channel.mention, inline=True)
+            embed.add_field(name="المستلم", value=interaction.user.mention, inline=True)
+            await log_channel.send(embed=embed)
+
     @discord.ui.button(style=discord.ButtonStyle.secondary, emoji=DELETE_EMOJI, custom_id="ticket_delete")
     async def delete_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         channel = interaction.channel
@@ -116,7 +183,36 @@ class TicketActionsView(discord.ui.View):
                 await interaction.response.send_message("لا تملك صلاحية حذف التذاكر.", ephemeral=True)
                 return
 
-        await interaction.response.send_message("جارٍ حذف التذكرة خلال خمس ثوانٍ...", ephemeral=True)
+        await interaction.response.send_message("جارٍ حفظ اللوق وحذف التذكرة خلال 5 ثوانٍ...", ephemeral=True)
+
+        # استخراج سجل المحادثات وإرساله لشات اللوق
+        log_channel = interaction.guild.get_channel(LOG_CHANNEL_ID)
+        if log_channel:
+            transcript_file = await generate_html_transcript(channel)
+            owner_id = data.get("user")
+            owner_mention = f"<@{owner_id}>" if owner_id else "غير معروف"
+
+            embed = discord.Embed(
+                title="🗑️ تم إغلاق تذكرة وحفظ اللوج",
+                color=discord.Color.red(),
+                timestamp=datetime.datetime.utcnow()
+            )
+            embed.add_field(name="اسم التذكرة", value=channel.name, inline=True)
+            embed.add_field(name="صاحب التذكرة", value=owner_mention, inline=True)
+            embed.add_field(name="بواسطة", value=interaction.user.mention, inline=True)
+            embed.set_footer(text="قم بتحميل ملف الـ HTML المرفق وفتحه في أي متصفح لرؤية المحادثة بالكامل.")
+
+            # إرسال ملف الـ Transcript مع الـ Embed
+            log_msg = await log_channel.send(embed=embed, file=transcript_file)
+
+            # إضافة رابط العرض المباشر لقوقل/المتصفح باستخدام HTML Viewer
+            if log_msg.attachments:
+                file_url = log_msg.attachments[0].url
+                web_viewer_url = f"https://htmlpreview.github.io/?{file_url}"
+                
+                embed.add_field(name="🌐 عرض المحادثة بقوقل", value=f"[اضغط هنا لفتح الشات بالمتصفح]({web_viewer_url})", inline=False)
+                await log_msg.edit(embed=embed)
+
         await asyncio.sleep(5)
         await channel.delete()
 
@@ -191,6 +287,19 @@ class TicketTypeSelect(discord.ui.Select):
             await ticket_message.pin()
         except discord.HTTPException:
             pass
+
+        # لوج فتح التذكرة
+        log_channel = guild.get_channel(LOG_CHANNEL_ID)
+        if log_channel:
+            embed = discord.Embed(
+                title="🎟️ تم فتح تذكرة جديدة",
+                color=discord.Color.green(),
+                timestamp=datetime.datetime.utcnow()
+            )
+            embed.add_field(name="صاحب التذكرة", value=user.mention, inline=True)
+            embed.add_field(name="النوع", value=value, inline=True)
+            embed.add_field(name="القناة", value=ticket_channel.mention, inline=True)
+            await log_channel.send(embed=embed)
 
         await interaction.response.edit_message(content=f"تم فتح تذكرتك هنا: {ticket_channel.mention}", view=None)
 
