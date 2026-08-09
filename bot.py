@@ -15,8 +15,8 @@ from discord.ext import commands
 # =========================================================
 # ============ إعدادات (CONFIG) - من Environment Variables ============
 # =========================================================
-# كل القيم هون بتتقرأ من متغيرات البيئة (Environment Variables) يلي بتعبيها
-# بلوحة تحكم Railway (Variables tab). ما في داعي تعدل هاد الملف نهائياً،
+# كل القيم هنا تُقرأ من متغيرات البيئة (Environment Variables) التي تقوم بتعبئتها
+# في لوحة تحكم Railway (Variables tab). لا داعي لتعديل هذا الملف نهائياً،
 # بس اعبي القيم بموقع Railway بنفس الأسماء الموجودة تحت (مثال: BOT_TOKEN).
 
 def _clean_id(raw: str):
@@ -45,7 +45,7 @@ TICKET_CATEGORY_ID = _clean_id(os.getenv("TICKET_CATEGORY_ID"))
 # رتبة الستاف
 STAFF_ROLE_ID = _clean_id(os.getenv("STAFF_ROLE_ID")) or 1535668575585566871
 
-# آيدي الأدمن الخاص بتذاكر "رتب خاصه"
+# آيدي الأدمن الخاص بتذاكر "رتب خاصة"
 SPECIAL_ADMIN_ID = _clean_id(os.getenv("SPECIAL_ADMIN_ID")) or 920981254554406952
 
 # رابط صورة "Melaad Support" (نفس الصورة تنستخدم باللوحة وبرسالة الترحيب بالتذكرة)
@@ -98,7 +98,7 @@ TYPE_LABELS = {
     "inquiry": "استفسار",
     "complaint": "شكوى",
     "help": "مساعدة",
-    "special": "رتب خاصه",
+    "special": "رتب خاصة",
 }
 
 
@@ -118,19 +118,19 @@ class TicketActionsView(discord.ui.View):
         data = parse_topic(channel.topic)
         ticket_type = data.get("type")
 
-        # اذا التذكرة نوعها "رتب خاصه" بس الأدمن المحدد يقدر يستلم
+        # إذا كان نوع التذكرة "رتب خاصة" فإن الأدمن المحدد فقط يستطيع الاستلام
         if ticket_type == "special":
             if interaction.user.id != SPECIAL_ADMIN_ID:
-                await interaction.response.send_message("هاي التذكرة خاصة، ما تقدر تستلمها.", ephemeral=True)
+                await interaction.response.send_message("هذه التذكرة خاصة، لا يمكنك استلامها.", ephemeral=True)
                 return
         else:
             if not is_staff(interaction.user):
-                await interaction.response.send_message("ما عندك صلاحية تستلم التذاكر.", ephemeral=True)
+                await interaction.response.send_message("لا تملك صلاحية استلام التذاكر.", ephemeral=True)
                 return
 
         button.disabled = True
         await interaction.message.edit(view=self)
-        await interaction.response.send_message(f"تم استلام التذكرة من قبل {interaction.user.mention}")
+        await interaction.response.send_message(f"تم استلام هذه التذكرة من قبل {interaction.user.mention}.")
 
     @discord.ui.button(style=discord.ButtonStyle.secondary, emoji=DELETE_EMOJI, custom_id="ticket_delete")
     async def delete_button(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -140,14 +140,14 @@ class TicketActionsView(discord.ui.View):
 
         if ticket_type == "special":
             if interaction.user.id != SPECIAL_ADMIN_ID:
-                await interaction.response.send_message("هاي التذكرة خاصة، ما تقدر تحذفها.", ephemeral=True)
+                await interaction.response.send_message("هذه التذكرة خاصة، لا يمكنك حذفها.", ephemeral=True)
                 return
         else:
             if not is_staff(interaction.user):
-                await interaction.response.send_message("ما عندك صلاحية تحذف التذاكر.", ephemeral=True)
+                await interaction.response.send_message("لا تملك صلاحية حذف التذاكر.", ephemeral=True)
                 return
 
-        await interaction.response.send_message("جاري حذف التذكرة خلال 5 ثواني...")
+        await interaction.response.send_message("جارٍ حذف التذكرة خلال خمس ثوانٍ...", ephemeral=True)
         await asyncio.sleep(5)
         await channel.delete()
 
@@ -162,7 +162,7 @@ class TicketTypeSelect(discord.ui.Select):
             discord.SelectOption(label="استفسار", value="inquiry"),
             discord.SelectOption(label="شكوى", value="complaint"),
             discord.SelectOption(label="مساعدة", value="help"),
-            discord.SelectOption(label="رتب خاصه", value="special"),
+            discord.SelectOption(label="رتب خاصة", value="special"),
         ]
         super().__init__(placeholder="يرجى تحديد طلبك:", options=options, min_values=1, max_values=1,
                           custom_id="ticket_type_select")
@@ -209,7 +209,7 @@ class TicketTypeSelect(discord.ui.Select):
         mention_line = f"{staff_role.mention if staff_role else 'Staff Team'} | {user.mention}"
 
         welcome_embed = discord.Embed(
-            description="أهلاً وسهلاً بك، يُرجى كتابة موضوع طلبك وسيتم الرد عليك من قِبل المسؤولين في أقرب وقت ممكن.",
+            description="أهلاً وسهلاً، يرجى كتابة موضوع طلبك، وسيتم الرد عليك من قبل المسؤولين.",
             color=discord.Color.dark_theme(),
         )
         if PANEL_IMAGE_URL:
@@ -223,7 +223,7 @@ class TicketTypeSelect(discord.ui.Select):
         except discord.HTTPException:
             pass
 
-        await interaction.response.edit_message(content=f"تم فتح تذكرتك هون: {ticket_channel.mention}", view=None)
+        await interaction.response.edit_message(content=f"تم فتح تذكرتك هنا: {ticket_channel.mention}", view=None)
 
 
 class TicketTypeView(discord.ui.View):
@@ -261,7 +261,7 @@ async def panel(interaction: discord.Interaction):
 @panel.error
 async def panel_error(interaction: discord.Interaction, error):
     if isinstance(error, app_commands.MissingPermissions):
-        await interaction.response.send_message("هاد الأمر للأدمنستريتر فقط.", ephemeral=True)
+        await interaction.response.send_message("هذا الأمر مخصص للمشرفين فقط.", ephemeral=True)
     else:
         raise error
 
@@ -273,21 +273,21 @@ async def memberadd(interaction: discord.Interaction, member: discord.Member):
     data = parse_topic(channel.topic)
 
     if "type" not in data:
-        await interaction.response.send_message("هاد الأمر يشتغل بس جوا روم تذكرة.", ephemeral=True)
+        await interaction.response.send_message("هذا الأمر يعمل فقط داخل قناة تذكرة.", ephemeral=True)
         return
 
     if not is_staff(interaction.user):
-        await interaction.response.send_message("ما عندك صلاحية تضيف أشخاص على التذاكر.", ephemeral=True)
+        await interaction.response.send_message("لا تملك صلاحية إضافة أشخاص إلى التذاكر.", ephemeral=True)
         return
 
     await channel.set_permissions(member, view_channel=True, send_messages=True, read_message_history=True)
-    await interaction.response.send_message(f"تم إضافة {member.mention} على التذكرة.")
+    await interaction.response.send_message(f"تم إضافة {member.mention} إلى التذكرة.")
 
 
 @memberadd.error
 async def memberadd_error(interaction: discord.Interaction, error):
     if isinstance(error, app_commands.MissingPermissions):
-        await interaction.response.send_message("ما عندك صلاحية تستخدم هاد الأمر.", ephemeral=True)
+        await interaction.response.send_message("لا تملك صلاحية استخدام هذا الأمر.", ephemeral=True)
     else:
         raise error
 
