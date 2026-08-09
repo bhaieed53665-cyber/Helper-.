@@ -43,6 +43,9 @@ TICKET_ICON_EMOJI = os.getenv("TICKET_ICON_EMOJI", "<:linkssssss:153604056411236
 CLAIM_EMOJI = os.getenv("CLAIM_EMOJI", "<:claim:1536007978090500096>")
 DELETE_EMOJI = os.getenv("DELETE_EMOJI", "<:delete:1536007930325770340>")
 
+# عداد التذاكر التلقائي
+ticket_counter = 1
+
 if not BOT_TOKEN:
     raise RuntimeError("لازم تعبي متغير BOT_TOKEN بلوحة تحكم Railway (Variables).")
 
@@ -137,7 +140,7 @@ class TicketActionsView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
 
-    # الزر الأول (اليمين): إغلاق/حذف التذكرة مع رمز القفل
+    # الزر الأول (اليمين): إغلاق/حذف التذكرة
     @discord.ui.button(style=discord.ButtonStyle.secondary, emoji=DELETE_EMOJI, custom_id="ticket_delete")
     async def delete_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         channel = interaction.channel
@@ -183,10 +186,11 @@ class TicketActionsView(discord.ui.View):
         await asyncio.sleep(5)
         await channel.delete()
 
-    # الزر الثاني (اليسار): استلام التذكرة
+    # الزر الثاني (اليسار): استلام التذكرة وقفلها عن باقي الإداريين
     @discord.ui.button(style=discord.ButtonStyle.secondary, emoji=CLAIM_EMOJI, custom_id="ticket_claim")
     async def claim_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         channel = interaction.channel
+        guild = interaction.guild
         data = parse_topic(channel.topic)
         ticket_type = data.get("type")
 
@@ -199,14 +203,21 @@ class TicketActionsView(discord.ui.View):
                 await interaction.response.send_message("لا تملك صلاحية استلام التذاكر.", ephemeral=True)
                 return
 
+        # تعديل الصلاحيات: إزالة رؤية التذكرة عن رتبة الـ Staff وإتاحتها للمستلم فقط (الأدمنية يحتفظون بالصلاحية تلقائياً)
+        staff_role = guild.get_role(STAFF_ROLE_ID)
+        if staff_role:
+            await channel.set_permissions(staff_role, view_channel=False)
+
+        await channel.set_permissions(interaction.user, view_channel=True, send_messages=True, read_message_history=True)
+
         button.disabled = True
         await interaction.message.edit(view=self)
-        await interaction.response.send_message(f"تم استلام هذه التذكرة من قبل {interaction.user.mention}.")
+        await interaction.response.send_message(f"تم استلام هذه التذكرة وإخفاؤها عن بقية طاقم الدعم بواسطة {interaction.user.mention}.")
 
-        log_channel = interaction.guild.get_channel(LOG_CHANNEL_ID)
+        log_channel = guild.get_channel(LOG_CHANNEL_ID)
         if log_channel:
             embed = discord.Embed(
-                title="📌 تم استلام تذكرة",
+                title="📌 تم استلام تذكرة وقفلها",
                 color=discord.Color.blue(),
                 timestamp=datetime.datetime.utcnow()
             )
@@ -231,6 +242,7 @@ class TicketTypeSelect(discord.ui.Select):
                          custom_id="ticket_type_select")
 
     async def callback(self, interaction: discord.Interaction):
+        global ticket_counter
         value = self.values[0]
         guild = interaction.guild
         user = interaction.user
@@ -258,7 +270,9 @@ class TicketTypeSelect(discord.ui.Select):
                     view_channel=True, send_messages=True, read_message_history=True
                 )
 
-        channel_name = f"{value}-{user.name}"[:95]
+        channel_name = f"🎫・{ticket_counter:04d}"
+        ticket_counter += 1
+
         topic = f"type:{value}|user:{user.id}"
 
         ticket_channel = await guild.create_text_channel(
