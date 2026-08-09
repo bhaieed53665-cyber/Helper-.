@@ -9,6 +9,8 @@ import io
 import logging
 import asyncio
 import datetime
+from typing import Optional
+import aiohttp
 import discord
 from discord import app_commands
 from discord.ext import commands
@@ -38,6 +40,10 @@ STAFF_ROLE_ID = _clean_id(os.getenv("STAFF_ROLE_ID")) or 1535668575585566871
 SPECIAL_ADMIN_ID = _clean_id(os.getenv("SPECIAL_ADMIN_ID")) or 920981254554406952
 LOG_CHANNEL_ID = _clean_id(os.getenv("LOG_CHANNEL_ID")) or 1281894208550076477
 PANEL_IMAGE_URL = os.getenv("PANEL_IMAGE_URL", "")
+
+# توكن GitHub شخصي بصلاحية gist فقط، يستخدم لرفع سجل المحادثة كملف يفتح مباشرة بالمتصفح
+# بدون هذا المتغير سيتم ارفاق ملف المحادثة داخل ديسكورد فقط بدون رابط معاينة بالمتصفح
+GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "")
 
 # الرموز التعبيرية المخصصة للازرار
 TICKET_ICON_EMOJI = os.getenv("TICKET_ICON_EMOJI", "<:linkssssss:1536040564112367738>")
@@ -117,8 +123,8 @@ async def safe_log_send(guild: discord.Guild, **send_kwargs):
         logger.exception("فشل ارسال رسالة الى قناة اللوق")
 
 
-async def generate_html_transcript(channel: discord.TextChannel) -> discord.File:
-    """تنشئ ملف HTML يحتوي على جميع الرسائل والصور داخل التذكرة"""
+async def build_transcript_html(channel: discord.TextChannel) -> str:
+    """تبني محتوى HTML كامل يحتوي على جميع رسائل وصور التذكرة كنص واحد"""
     messages = []
     async for msg in channel.history(limit=None, oldest_first=True):
         messages.append(msg)
@@ -163,9 +169,55 @@ async def generate_html_transcript(channel: discord.TextChannel) -> discord.File
         """
 
     html_content += "</body></html>"
+    return html_content
 
+
+def html_to_discord_file(html_content: str, channel_name: str) -> discord.File:
+    """يحول نص HTML جاهز الى ملف مرفق يرفع على ديسكورد"""
     file_bytes = io.BytesIO(html_content.encode("utf-8"))
-    return discord.File(file_bytes, filename=f"transcript-{channel.name}.html")
+    return discord.File(file_bytes, filename=f"transcript-{channel_name}.html")
+
+
+async def upload_transcript_preview_link(channel_name: str, html_content: str) -> Optional[str]:
+    """
+    ترفع محتوى المحادثة كملف Gist عام على GitHub وترجع رابط معاينة
+    يفتح مباشرة بالمتصفح (بدون تنزيل) عبر htmlpreview.github.io
+    ترجع None اذا لم يكن متغير GITHUB_TOKEN معبى او صار خطا اثناء الرفع
+    """
+    if not GITHUB_TOKEN:
+        return None
+
+    filename = f"transcript-{channel_name}.html"
+    payload = {
+        "description": f"سجل محادثة تذكرة - {channel_name}",
+        "public": True,
+        "files": {
+            filename: {"content": html_content}
+        },
+    }
+    headers = {
+        "Authorization": f"token {GITHUB_TOKEN}",
+        "Accept": "application/vnd.github+json",
+    }
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                "https://api.github.com/gists",
+                json=payload,
+                headers=headers,
+                timeout=aiohttp.ClientTimeout(total=15),
+            ) as resp:
+                if resp.status not in (200, 201):
+                    body = await resp.text()
+                    logger.error("فشل رفع سجل المحادثة الى GitHub Gist، رمز الحالة: %s | %s", resp.status, body)
+                    return None
+                data = await resp.json()
+                raw_url = data["files"][filename]["raw_url"]
+                return f"https://htmlpreview.github.io/?{raw_url}"
+    except Exception:
+        logger.exception("خطا غير متوقع اثناء رفع سجل المحادثة الى GitHub")
+        return None
 
 
 async def auto_delete_ticket_task(channel_id: int, guild_id: int, owner_id: int):
@@ -267,7 +319,9 @@ class ConfirmDeleteView(discord.ui.View):
         owner_mention = f"<@{owner_id}>" if owner_id else "غير معروف"
 
         try:
-            transcript_file = await generate_html_transcript(channel)
+            html_content = await build_transcript_html(channel)
+            transcript_file = html_to_discord_file(html_content, channel.name)
+            preview_link = await upload_transcript_preview_link(channel.name, html_content)
 
             embed = discord.Embed(
                 title="تم اغلاق التذكرة وحفظ السجل",
@@ -277,7 +331,14 @@ class ConfirmDeleteView(discord.ui.View):
             embed.add_field(name="اسم التذكرة", value=channel.name, inline=True)
             embed.add_field(name="صاحب التذكرة", value=owner_mention, inline=True)
             embed.add_field(name="بواسطة", value=interaction.user.mention, inline=True)
-            embed.add_field(name="رابط التذكرة", value=f"[اضغط هنا]({ticket_jump_url(channel)})", inline=False)
+            if preview_link:
+                embed.add_field(name="فتح السجل بالمتصفح", value=f"[اضغط هنا لمشاهدة المحادثة]({preview_link})", inline=False)
+            else:
+                embed.add_field(
+                    name="فتح السجل بالمتصفح",
+                    value="غير متاح حاليا (لم يتم تعبئة متغير GITHUB_TOKEN)، الملف المرفق ادناه يحتوي على السجل كاملا",
+                    inline=False
+                )
 
             # يتم ارسال السجل مع ملف المحادثة نفسه والابقاء عليه في القناة (بدون حذفه)
             await safe_log_send(interaction.guild, embed=embed, file=transcript_file)
