@@ -208,11 +208,12 @@ class TicketTypeSelect(discord.ui.Select):
         staff_role = guild.get_role(STAFF_ROLE_ID)
         mention_line = f"{staff_role.mention if staff_role else 'Staff Team'} | {user.mention}"
 
-        embed = discord.Embed(description="اهلا وسهلا, يرجى كتابة الموضوع وسيتم الرد من قبل المسؤولين")
+        content_parts = [mention_line, "اهلا وسهلا, يرجى كتابة الموضوع وسيتم الرد من قبل المسؤولين"]
         if PANEL_IMAGE_URL:
-            embed.set_image(url=PANEL_IMAGE_URL)
+            content_parts.append(PANEL_IMAGE_URL)
+        message_content = "\n".join(content_parts)
 
-        await ticket_channel.send(content=mention_line, embed=embed, view=TicketActionsView())
+        await ticket_channel.send(content=message_content, view=TicketActionsView())
 
         await interaction.response.edit_message(content=f"تم فتح تذكرتك هون: {ticket_channel.mention}", view=None)
 
@@ -243,11 +244,9 @@ class TicketPanelView(discord.ui.View):
 @bot.tree.command(name="panel", description="إرسال لوحة فتح التذاكر")
 @app_commands.checks.has_permissions(administrator=True)
 async def panel(interaction: discord.Interaction):
-    embed = discord.Embed()
-    if PANEL_IMAGE_URL:
-        embed.set_image(url=PANEL_IMAGE_URL)
+    content = PANEL_IMAGE_URL if PANEL_IMAGE_URL else ""
 
-    await interaction.channel.send(embed=embed, view=TicketPanelView())
+    await interaction.channel.send(content=content, view=TicketPanelView())
     await interaction.response.send_message("تم إرسال اللوحة.", ephemeral=True)
 
 
