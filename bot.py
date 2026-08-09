@@ -15,12 +15,9 @@ from discord.ext import commands
 # =========================================================
 # ============ إعدادات (CONFIG) - من Environment Variables ============
 # =========================================================
-# كل القيم هنا تُقرأ من متغيرات البيئة (Environment Variables) التي تقوم بتعبئتها
-# في لوحة تحكم Railway (Variables tab). لا داعي لتعديل هذا الملف نهائياً،
-# بس اعبي القيم بموقع Railway بنفس الأسماء الموجودة تحت (مثال: BOT_TOKEN).
 
 def _clean_id(raw: str):
-    """ينضف قيمة آيدي جاية من Environment Variable (يشيل مسافات وأقواس <> لو انحطت غلط)"""
+    """ينضف قيمة آيدي جاية من Environment Variable"""
     if not raw:
         return None
     cleaned = raw.strip().strip("<>").strip()
@@ -35,24 +32,12 @@ def _clean_id(raw: str):
 
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-
-# آيدي السيرفر (اختياري) - إذا حطيته بيصير مزامنة الأوامر أسرع (فوري بدل ما ياخذ وقت)
 GUILD_ID = _clean_id(os.getenv("GUILD_ID"))
-
-# آيدي الكاتيغوري (التصنيف) الي بدك التذاكر تتفتح جواته - لازم تعبيه
 TICKET_CATEGORY_ID = _clean_id(os.getenv("TICKET_CATEGORY_ID"))
-
-# رتبة الستاف
 STAFF_ROLE_ID = _clean_id(os.getenv("STAFF_ROLE_ID")) or 1535668575585566871
-
-# آيدي الأدمن الخاص بتذاكر "رتب خاصة"
 SPECIAL_ADMIN_ID = _clean_id(os.getenv("SPECIAL_ADMIN_ID")) or 920981254554406952
-
-# رابط صورة "Melaad Support" (نفس الصورة تنستخدم باللوحة وبرسالة الترحيب بالتذكرة)
 PANEL_IMAGE_URL = os.getenv("PANEL_IMAGE_URL", "")
 
-# الإيموجيات المستخدمة بالأزرار (بدون أي كتابة على الأزرار)
-# لازم ترفع نفس الأيقونات كـ Custom Emoji بالسيرفر وتحط الفورمات: <:name:id>
 TICKET_ICON_EMOJI = os.getenv("TICKET_ICON_EMOJI", "🎫")
 CLAIM_EMOJI = os.getenv("CLAIM_EMOJI", "🔒")
 DELETE_EMOJI = os.getenv("DELETE_EMOJI", "🗑️")
@@ -64,7 +49,6 @@ if not BOT_TOKEN:
 # ===================== نهاية الإعدادات ====================
 # =========================================================
 
-
 intents = discord.Intents.default()
 intents.members = True
 intents.guilds = True
@@ -73,7 +57,6 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 
 
 def is_staff(member: discord.Member) -> bool:
-    """يتحقق اذا الشخص ستاف (عنده رتبة الستاف أو صلاحية أدمن) أو هو الأدمن الخاص"""
     if member.id == SPECIAL_ADMIN_ID:
         return True
     if member.guild_permissions.administrator:
@@ -83,7 +66,6 @@ def is_staff(member: discord.Member) -> bool:
 
 
 def parse_topic(topic: str):
-    """يقرأ نوع التذكرة وصاحبها من عنوان (topic) الروم"""
     data = {}
     if not topic:
         return data
@@ -107,8 +89,6 @@ TYPE_LABELS = {
 # =========================================================
 
 class TicketActionsView(discord.ui.View):
-    """الأزرار الي بتظهر جوا كل تذكرة: استلام / حذف"""
-
     def __init__(self):
         super().__init__(timeout=None)
 
@@ -118,7 +98,6 @@ class TicketActionsView(discord.ui.View):
         data = parse_topic(channel.topic)
         ticket_type = data.get("type")
 
-        # إذا كان نوع التذكرة "رتب خاصة" فإن الأدمن المحدد فقط يستطيع الاستلام
         if ticket_type == "special":
             if interaction.user.id != SPECIAL_ADMIN_ID:
                 await interaction.response.send_message("هذه التذكرة خاصة، لا يمكنك استلامها.", ephemeral=True)
@@ -164,8 +143,8 @@ class TicketTypeSelect(discord.ui.Select):
             discord.SelectOption(label="مساعدة", value="help"),
             discord.SelectOption(label="رتب خاصة", value="special"),
         ]
-        super().__init__(placeholder="يرجى تحديد طلبك:", options=options, min_values=1, max_values=1,
-                          custom_id="ticket_type_select")
+        super().__init__(placeholder="اختر طلبك", options=options, min_values=1, max_values=1,
+                         custom_id="ticket_type_select")
 
     async def callback(self, interaction: discord.Interaction):
         value = self.values[0]
@@ -242,7 +221,7 @@ class TicketPanelView(discord.ui.View):
 
     @discord.ui.button(style=discord.ButtonStyle.secondary, emoji=TICKET_ICON_EMOJI, custom_id="open_ticket_panel")
     async def open_ticket(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_message(view=TicketTypeView(), ephemeral=True)
+        await interaction.response.send_message(content="يرجى تحديد طلبك", view=TicketTypeView(), ephemeral=True)
 
 
 # =========================================================
