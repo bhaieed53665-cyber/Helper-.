@@ -39,7 +39,7 @@ LOG_CHANNEL_ID = _clean_id(os.getenv("LOG_CHANNEL_ID")) or 1281894208550076477
 PANEL_IMAGE_URL = os.getenv("PANEL_IMAGE_URL", "")
 
 # الإيموجيات المخصصة للأزرار
-TICKET_ICON_EMOJI = os.getenv("TICKET_ICON_EMOJI", "<:ticketss:1536008761175572520>")
+TICKET_ICON_EMOJI = os.getenv("TICKET_ICON_EMOJI", "<:linkssssss:1536040564112367738>")
 CLAIM_EMOJI = os.getenv("CLAIM_EMOJI", "<:claim:1536007978090500096>")
 DELETE_EMOJI = os.getenv("DELETE_EMOJI", "<:delete:1536007930325770340>")
 
@@ -137,38 +137,7 @@ class TicketActionsView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
 
-    # الزر الأول (اليمين): استلام التذكرة برمز הקמامة
-    @discord.ui.button(style=discord.ButtonStyle.secondary, emoji=CLAIM_EMOJI, custom_id="ticket_claim")
-    async def claim_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        channel = interaction.channel
-        data = parse_topic(channel.topic)
-        ticket_type = data.get("type")
-
-        if ticket_type == "special":
-            if interaction.user.id != SPECIAL_ADMIN_ID:
-                await interaction.response.send_message("هذه التذكرة خاصة، لا يمكنك استلامها.", ephemeral=True)
-                return
-        else:
-            if not is_staff(interaction.user):
-                await interaction.response.send_message("لا تملك صلاحية استلام التذاكر.", ephemeral=True)
-                return
-
-        button.disabled = True
-        await interaction.message.edit(view=self)
-        await interaction.response.send_message(f"تم استلام هذه التذكرة من قبل {interaction.user.mention}.")
-
-        log_channel = interaction.guild.get_channel(LOG_CHANNEL_ID)
-        if log_channel:
-            embed = discord.Embed(
-                title="📌 تم استلام تذكرة",
-                color=discord.Color.blue(),
-                timestamp=datetime.datetime.utcnow()
-            )
-            embed.add_field(name="القناة", value=channel.mention, inline=True)
-            embed.add_field(name="المستلم", value=interaction.user.mention, inline=True)
-            await log_channel.send(embed=embed)
-
-    # الزر الثاني (الشمال): حذف التذكرة برمز القفل
+    # الزر الأول (اليمين): إغلاق/حذف التذكرة مع رمز القفل
     @discord.ui.button(style=discord.ButtonStyle.secondary, emoji=DELETE_EMOJI, custom_id="ticket_delete")
     async def delete_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         channel = interaction.channel
@@ -201,7 +170,6 @@ class TicketActionsView(discord.ui.View):
             embed.add_field(name="صاحب التذكرة", value=owner_mention, inline=True)
             embed.add_field(name="بواسطة", value=interaction.user.mention, inline=True)
 
-            # إرسال الملف واستخراج رابط المعاينة المباشر دون إظهار المعاينة الكودية
             log_msg = await log_channel.send(embed=embed, file=transcript_file)
 
             if log_msg.attachments:
@@ -209,12 +177,42 @@ class TicketActionsView(discord.ui.View):
                 web_viewer_url = f"https://htmlpreview.github.io/?{file_url}"
                 embed.add_field(name="🌐 عرض المحادثة بقوقل", value=f"[اضغط هنا لفتح الشات بالمتصفح]({web_viewer_url})", inline=False)
                 
-                # حذف الرسالة التي تحتوي الملف المباشر وإعادة إرسال الـ Embed الرسومي الصافي
                 await log_msg.delete()
                 await log_channel.send(embed=embed)
 
         await asyncio.sleep(5)
         await channel.delete()
+
+    # الزر الثاني (اليسار): استلام التذكرة
+    @discord.ui.button(style=discord.ButtonStyle.secondary, emoji=CLAIM_EMOJI, custom_id="ticket_claim")
+    async def claim_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        channel = interaction.channel
+        data = parse_topic(channel.topic)
+        ticket_type = data.get("type")
+
+        if ticket_type == "special":
+            if interaction.user.id != SPECIAL_ADMIN_ID:
+                await interaction.response.send_message("هذه التذكرة خاصة، لا يمكنك استلامها.", ephemeral=True)
+                return
+        else:
+            if not is_staff(interaction.user):
+                await interaction.response.send_message("لا تملك صلاحية استلام التذاكر.", ephemeral=True)
+                return
+
+        button.disabled = True
+        await interaction.message.edit(view=self)
+        await interaction.response.send_message(f"تم استلام هذه التذكرة من قبل {interaction.user.mention}.")
+
+        log_channel = interaction.guild.get_channel(LOG_CHANNEL_ID)
+        if log_channel:
+            embed = discord.Embed(
+                title="📌 تم استلام تذكرة",
+                color=discord.Color.blue(),
+                timestamp=datetime.datetime.utcnow()
+            )
+            embed.add_field(name="القناة", value=channel.mention, inline=True)
+            embed.add_field(name="المستلم", value=interaction.user.mention, inline=True)
+            await log_channel.send(embed=embed)
 
 
 # =========================================================
