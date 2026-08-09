@@ -422,8 +422,22 @@ async def memberadd(interaction: discord.Interaction, member: discord.Member):
         await interaction.response.send_message("لا تملك صلاحية اضافة اشخاص الى التذاكر", ephemeral=True)
         return
 
-    await channel.set_permissions(member, view_channel=True, send_messages=True, read_message_history=True)
-    await interaction.response.send_message(f"تم اضافة {member.mention} الى التذكرة")
+    # نؤكد استلام التفاعل فورا حتى لا يظهر خطا عدم الاستجابة اذا تاخر الطلب التالي
+    await interaction.response.defer(ephemeral=False)
+
+    try:
+        await channel.set_permissions(member, view_channel=True, send_messages=True, read_message_history=True)
+    except discord.Forbidden:
+        await interaction.followup.send(
+            "لا يملك البوت الصلاحيات الكافية لاضافة هذا العضو الى القناة، تاكد من صلاحية Manage Channels وترتيب رتبة البوت",
+            ephemeral=True
+        )
+        return
+    except Exception:
+        await interaction.followup.send("حدث خطا غير متوقع اثناء اضافة العضو الى التذكرة", ephemeral=True)
+        return
+
+    await interaction.followup.send(f"تم اضافة {member.mention} الى التذكرة")
 
 
 @memberadd.error
