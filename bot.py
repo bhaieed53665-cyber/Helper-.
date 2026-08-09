@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 بوت تذاكر (Tickets) بالديسكورد - Melaad Support
-مبني بـ discord.py مع نظام Logs و HTML Transcripts
+مبني بـ discord.py مع نظام Logs ورابط معاينة الشات
 """
 
 import os
@@ -53,7 +53,7 @@ if not BOT_TOKEN:
 intents = discord.Intents.default()
 intents.members = True
 intents.guilds = True
-intents.message_content = True  # تفعيل للتمكن من قراءة الرسائل وحفظ اللوج
+intents.message_content = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
@@ -79,7 +79,7 @@ def parse_topic(topic: str):
 
 
 async def generate_html_transcript(channel: discord.TextChannel) -> discord.File:
-    """تنشئ ملف HTML منسق يحتوي على جميع الرسائل والصور داخل التذكرة"""
+    """تنشئ ملف HTML يحتوي على جميع الرسائل والصور داخل التذكرة"""
     messages = []
     async for msg in channel.history(limit=None, oldest_first=True):
         messages.append(msg)
@@ -137,6 +137,7 @@ class TicketActionsView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
 
+    # الزر الأول (اليمين): استلام التذكرة برمز הקמامة
     @discord.ui.button(style=discord.ButtonStyle.secondary, emoji=CLAIM_EMOJI, custom_id="ticket_claim")
     async def claim_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         channel = interaction.channel
@@ -156,7 +157,6 @@ class TicketActionsView(discord.ui.View):
         await interaction.message.edit(view=self)
         await interaction.response.send_message(f"تم استلام هذه التذكرة من قبل {interaction.user.mention}.")
 
-        # إرسال إشعار بالاستلام لقناة اللوق
         log_channel = interaction.guild.get_channel(LOG_CHANNEL_ID)
         if log_channel:
             embed = discord.Embed(
@@ -168,6 +168,7 @@ class TicketActionsView(discord.ui.View):
             embed.add_field(name="المستلم", value=interaction.user.mention, inline=True)
             await log_channel.send(embed=embed)
 
+    # الزر الثاني (الشمال): حذف التذكرة برمز القفل
     @discord.ui.button(style=discord.ButtonStyle.secondary, emoji=DELETE_EMOJI, custom_id="ticket_delete")
     async def delete_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         channel = interaction.channel
@@ -185,7 +186,6 @@ class TicketActionsView(discord.ui.View):
 
         await interaction.response.send_message("جارٍ حفظ اللوق وحذف التذكرة خلال 5 ثوانٍ...", ephemeral=True)
 
-        # استخراج سجل المحادثات وإرساله لشات اللوق
         log_channel = interaction.guild.get_channel(LOG_CHANNEL_ID)
         if log_channel:
             transcript_file = await generate_html_transcript(channel)
@@ -200,18 +200,18 @@ class TicketActionsView(discord.ui.View):
             embed.add_field(name="اسم التذكرة", value=channel.name, inline=True)
             embed.add_field(name="صاحب التذكرة", value=owner_mention, inline=True)
             embed.add_field(name="بواسطة", value=interaction.user.mention, inline=True)
-            embed.set_footer(text="قم بتحميل ملف الـ HTML المرفق وفتحه في أي متصفح لرؤية المحادثة بالكامل.")
 
-            # إرسال ملف الـ Transcript مع الـ Embed
+            # إرسال الملف واستخراج رابط المعاينة المباشر دون إظهار المعاينة الكودية
             log_msg = await log_channel.send(embed=embed, file=transcript_file)
 
-            # إضافة رابط العرض المباشر لقوقل/المتصفح باستخدام HTML Viewer
             if log_msg.attachments:
                 file_url = log_msg.attachments[0].url
                 web_viewer_url = f"https://htmlpreview.github.io/?{file_url}"
-                
                 embed.add_field(name="🌐 عرض المحادثة بقوقل", value=f"[اضغط هنا لفتح الشات بالمتصفح]({web_viewer_url})", inline=False)
-                await log_msg.edit(embed=embed)
+                
+                # حذف الرسالة التي تحتوي الملف المباشر وإعادة إرسال الـ Embed الرسومي الصافي
+                await log_msg.delete()
+                await log_channel.send(embed=embed)
 
         await asyncio.sleep(5)
         await channel.delete()
@@ -288,7 +288,6 @@ class TicketTypeSelect(discord.ui.Select):
         except discord.HTTPException:
             pass
 
-        # لوج فتح التذكرة
         log_channel = guild.get_channel(LOG_CHANNEL_ID)
         if log_channel:
             embed = discord.Embed(
