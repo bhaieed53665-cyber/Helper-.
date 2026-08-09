@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
-بوت تذاكر (Tickets) بالديسكورد - Melaad Support
-مبني بـ discord.py مع نظام Logs ورابط معاينة الشات
+بوت تذاكر عبر ديسكورد - دعم ميلاد
+مبني باستخدام discord.py مع نظام سجلات ورابط لمعاينة المحادثة
 """
 
 import os
@@ -13,7 +13,7 @@ from discord import app_commands
 from discord.ext import commands
 
 # =========================================================
-# ============ إعدادات (CONFIG) - من Environment Variables ============
+# ============ الاعدادات (config) - من متغيرات البيئة ============
 # =========================================================
 
 def _clean_id(raw: str):
@@ -26,7 +26,7 @@ def _clean_id(raw: str):
         return int(cleaned)
     except ValueError:
         raise RuntimeError(
-            f"القيمة '{raw}' مش رقم آيدي صحيح. لازم تكون أرقام بس بدون أقواس < > أو مسافات."
+            f"القيمة '{raw}' ليست رقم معرف صحيح. يجب ان تتكون من ارقام فقط بدون اقواس < > او مسافات."
         )
 
 
@@ -38,7 +38,7 @@ SPECIAL_ADMIN_ID = _clean_id(os.getenv("SPECIAL_ADMIN_ID")) or 92098125455440695
 LOG_CHANNEL_ID = _clean_id(os.getenv("LOG_CHANNEL_ID")) or 1281894208550076477
 PANEL_IMAGE_URL = os.getenv("PANEL_IMAGE_URL", "")
 
-# الإيموجيات المخصصة للأزرار
+# الرموز التعبيرية المخصصة للازرار
 TICKET_ICON_EMOJI = os.getenv("TICKET_ICON_EMOJI", "<:linkssssss:1536040564112367738>")
 CLAIM_EMOJI = os.getenv("CLAIM_EMOJI", "<:claim:1536007978090500096>")
 DELETE_EMOJI = os.getenv("DELETE_EMOJI", "<:delete:1536007930325770340>")
@@ -47,10 +47,10 @@ DELETE_EMOJI = os.getenv("DELETE_EMOJI", "<:delete:1536007930325770340>")
 ticket_counter = 1
 
 if not BOT_TOKEN:
-    raise RuntimeError("لازم تعبي متغير BOT_TOKEN بلوحة تحكم Railway (Variables).")
+    raise RuntimeError("يجب تعبئة متغير BOT_TOKEN من لوحة تحكم Railway (Variables).")
 
 # =========================================================
-# ===================== نهاية الإعدادات ====================
+# ===================== نهاية الاعدادات ====================
 # =========================================================
 
 intents = discord.Intents.default()
@@ -106,7 +106,7 @@ async def generate_html_transcript(channel: discord.TextChannel) -> discord.File
     <body>
         <div class="header">
             <h2>سجل المحادثة للتذكرة: {channel.name}</h2>
-            <p>تاريخ الأرشفة: {datetime.datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC</p>
+            <p>تاريخ الارشفة: {datetime.datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC</p>
         </div>
     """
 
@@ -127,28 +127,32 @@ async def generate_html_transcript(channel: discord.TextChannel) -> discord.File
         """
 
     html_content += "</body></html>"
-    
+
     file_bytes = io.BytesIO(html_content.encode("utf-8"))
     return discord.File(file_bytes, filename=f"transcript-{channel.name}.html")
 
 
-async def auto_delete_ticket_task(channel: discord.TextChannel):
-    """دالة تنتظر ساعتين وتتحقق مما إذا كان هناك رد بالشار وفي حال عدم وجود ردود تحذف القناة بصمت"""
+async def auto_delete_ticket_task(channel: discord.TextChannel, owner_id: int):
+    """
+    تنتظر هذه الدالة مدة ساعتين ثم تتحقق مما اذا كان صاحب التذكرة نفسه
+    قد ارسل اي رسالة داخل القناة، بغض النظر عن ردود فريق الدعم.
+    في حال عدم وجود اي رد من صاحب التذكرة يتم حذف القناة دون اي اشعار.
+    """
     await asyncio.sleep(7200)  # الانتظار ساعتين (7200 ثانية)
-    
+
     try:
-        # فحص القناة والتأكد من وجودها
         current_channel = bot.get_channel(channel.id)
         if not current_channel:
             return
 
-        user_messages_count = 0
-        async for msg in current_channel.history(limit=10):
-            if not msg.author.bot:
-                user_messages_count += 1
+        owner_replied = False
+        async for msg in current_channel.history(limit=None, oldest_first=True):
+            if msg.author.id == owner_id:
+                owner_replied = True
+                break
 
-        # إذا لم يُرسل أي شخص رسالة خلال الساعتين يتم الحذف بصمت وبدون لوج
-        if user_messages_count == 0:
+        # اذا لم يرسل صاحب التذكرة اي رسالة خلال الساعتين يتم الحذف بصمت وبدون سجل
+        if not owner_replied:
             await current_channel.delete()
     except discord.NotFound:
         pass
@@ -157,14 +161,14 @@ async def auto_delete_ticket_task(channel: discord.TextChannel):
 
 
 # =========================================================
-# ==================== نافذة تأكيد الحذف ===================
+# ==================== نافذة تاكيد الحذف ===================
 # =========================================================
 
 class ConfirmDeleteView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=60)
 
-    @discord.ui.button(label="تأكيد الحذف", style=discord.ButtonStyle.danger, custom_id="confirm_delete_btn")
+    @discord.ui.button(label="تاكيد الحذف", style=discord.ButtonStyle.danger, custom_id="confirm_delete_btn")
     async def confirm_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         channel = interaction.channel
         data = parse_topic(channel.topic)
@@ -180,7 +184,7 @@ class ConfirmDeleteView(discord.ui.View):
                 return
 
         button.disabled = True
-        await interaction.response.edit_message(content="جاري حفظ السجل وحذف التذكرة خلال خمس ثوان", view=None)
+        await interaction.response.edit_message(content="جاري حفظ السجل وحذف التذكرة خلال خمس ثواني", view=None)
 
         log_channel = interaction.guild.get_channel(LOG_CHANNEL_ID)
         if log_channel:
@@ -189,7 +193,7 @@ class ConfirmDeleteView(discord.ui.View):
             owner_mention = f"<@{owner_id}>" if owner_id else "غير معروف"
 
             embed = discord.Embed(
-                title="تم إغلاق التذكرة وحفظ السجل",
+                title="تم اغلاق التذكرة وحفظ السجل",
                 color=discord.Color.red(),
                 timestamp=datetime.datetime.utcnow()
             )
@@ -197,22 +201,15 @@ class ConfirmDeleteView(discord.ui.View):
             embed.add_field(name="صاحب التذكرة", value=owner_mention, inline=True)
             embed.add_field(name="بواسطة", value=interaction.user.mention, inline=True)
 
-            log_msg = await log_channel.send(embed=embed, file=transcript_file)
-
-            if log_msg.attachments:
-                file_url = log_msg.attachments[0].url
-                web_viewer_url = f"https://htmlpreview.github.io/?{file_url}"
-                embed.add_field(name="عرض المحادثة عبر المتصفح", value=f"[اضغط هنا لفتح السجل]({web_viewer_url})", inline=False)
-                
-                await log_msg.delete()
-                await log_channel.send(embed=embed)
+            # يتم ارسال السجل مع ملف المحادثة نفسه والابقاء عليه في القناة
+            await log_channel.send(embed=embed, file=transcript_file)
 
         await asyncio.sleep(5)
         await channel.delete()
 
 
 # =========================================================
-# ==================== أزرار / فيوهات الحذف والاستلام =========
+# ==================== ازرار / نوافذ الحذف والاستلام =========
 # =========================================================
 
 class TicketActionsView(discord.ui.View):
@@ -235,7 +232,7 @@ class TicketActionsView(discord.ui.View):
                 return
 
         await interaction.response.send_message(
-            content="هل أنت تأكد من أنك تريد حذف هذه التذكرة",
+            content="هل انت متاكد من انك تريد حذف هذه التذكرة؟",
             view=ConfirmDeleteView(),
             ephemeral=True
         )
@@ -264,7 +261,7 @@ class TicketActionsView(discord.ui.View):
 
         button.disabled = True
         await interaction.message.edit(view=self)
-        
+
         await interaction.response.send_message(f"تم استلام هذه التذكرة من قبل {interaction.user.mention}")
 
         log_channel = guild.get_channel(LOG_CHANNEL_ID)
@@ -336,10 +333,10 @@ class TicketTypeSelect(discord.ui.Select):
         )
 
         staff_role = guild.get_role(STAFF_ROLE_ID)
-        mention_line = f"{staff_role.mention if staff_role else 'Staff Team'} | {user.mention}"
+        mention_line = f"{staff_role.mention if staff_role else 'فريق الدعم'} | {user.mention}"
 
         welcome_embed = discord.Embed(
-            description="أهلا وسهلا يرجى كتابة موضوع طلبك وسيتم الرد عليك من قبل المسؤولين",
+            description="اهلا وسهلا يرجى كتابة موضوع طلبك وسيتم الرد عليك من قبل المسؤولين",
             color=discord.Color.dark_theme(),
         )
         if PANEL_IMAGE_URL:
@@ -367,8 +364,8 @@ class TicketTypeSelect(discord.ui.Select):
 
         await interaction.response.edit_message(content=f"تم فتح تذكرتك هنا {ticket_channel.mention}", view=None)
 
-        # البدء بمراقبة الحذف التلقائي بعد ساعتين
-        asyncio.create_task(auto_delete_ticket_task(ticket_channel))
+        # البدء بمراقبة الحذف التلقائي بعد ساعتين من عدم رد صاحب التذكرة
+        asyncio.create_task(auto_delete_ticket_task(ticket_channel, user.id))
 
 
 class TicketTypeView(discord.ui.View):
@@ -391,54 +388,54 @@ class TicketPanelView(discord.ui.View):
 
 
 # =========================================================
-# ========================= الأوامر =========================
+# ========================= الاوامر =========================
 # =========================================================
 
-@bot.tree.command(name="panel", description="إرسال لوحة فتح التذاكر")
+@bot.tree.command(name="panel", description="ارسال لوحة فتح التذاكر")
 @app_commands.checks.has_permissions(administrator=True)
 async def panel(interaction: discord.Interaction):
     content = PANEL_IMAGE_URL if PANEL_IMAGE_URL else ""
 
     await interaction.channel.send(content=content, view=TicketPanelView())
-    await interaction.response.send_message("تم إرسال اللوحة", ephemeral=True)
+    await interaction.response.send_message("تم ارسال اللوحة", ephemeral=True)
 
 
 @panel.error
 async def panel_error(interaction: discord.Interaction, error):
     if isinstance(error, app_commands.MissingPermissions):
-        await interaction.response.send_message("هذا الأمر مخصص للمشرفين فقط", ephemeral=True)
+        await interaction.response.send_message("هذا الامر مخصص للمشرفين فقط", ephemeral=True)
     else:
         raise error
 
 
-@bot.tree.command(name="memberadd", description="إضافة شخص للتذكرة الحالية")
-@app_commands.describe(member="الشخص الذي تريد إضافته إلى التذكرة")
+@bot.tree.command(name="memberadd", description="اضافة شخص للتذكرة الحالية")
+@app_commands.describe(member="الشخص الذي تريد اضافته الى التذكرة")
 async def memberadd(interaction: discord.Interaction, member: discord.Member):
     channel = interaction.channel
     data = parse_topic(channel.topic)
 
     if "type" not in data:
-        await interaction.response.send_message("هذا الأمر يعمل فقط داخل قناة تذكرة", ephemeral=True)
+        await interaction.response.send_message("هذا الامر يعمل فقط داخل قناة تذكرة", ephemeral=True)
         return
 
     if not is_staff(interaction.user):
-        await interaction.response.send_message("لا تملك صلاحية إضافة أشخاص إلى التذاكر", ephemeral=True)
+        await interaction.response.send_message("لا تملك صلاحية اضافة اشخاص الى التذاكر", ephemeral=True)
         return
 
     await channel.set_permissions(member, view_channel=True, send_messages=True, read_message_history=True)
-    await interaction.response.send_message(f"تم إضافة {member.mention} إلى التذكرة")
+    await interaction.response.send_message(f"تم اضافة {member.mention} الى التذكرة")
 
 
 @memberadd.error
 async def memberadd_error(interaction: discord.Interaction, error):
     if isinstance(error, app_commands.MissingPermissions):
-        await interaction.response.send_message("لا تملك صلاحية استخدام هذا الأمر", ephemeral=True)
+        await interaction.response.send_message("لا تملك صلاحية استخدام هذا الامر", ephemeral=True)
     else:
         raise error
 
 
 # =========================================================
-# ========================= الإقلاع =========================
+# ========================= الاقلاع =========================
 # =========================================================
 
 @bot.event
