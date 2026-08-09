@@ -221,7 +221,7 @@ class TicketPanelView(discord.ui.View):
 
     @discord.ui.button(style=discord.ButtonStyle.secondary, emoji=TICKET_ICON_EMOJI, custom_id="open_ticket_panel")
     async def open_ticket(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_message(content="يرجى تحديد طلبك", view=TicketTypeView(), ephemeral=True)
+        await interaction.response.send_message(view=TicketTypeView(), ephemeral=True)
 
 
 # =========================================================
