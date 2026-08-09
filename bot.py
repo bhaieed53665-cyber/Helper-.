@@ -208,12 +208,20 @@ class TicketTypeSelect(discord.ui.Select):
         staff_role = guild.get_role(STAFF_ROLE_ID)
         mention_line = f"{staff_role.mention if staff_role else 'Staff Team'} | {user.mention}"
 
-        content_parts = [mention_line, "اهلا وسهلا, يرجى كتابة الموضوع وسيتم الرد من قبل المسؤولين"]
+        welcome_embed = discord.Embed(
+            description="أهلاً وسهلاً بك، يُرجى كتابة موضوع طلبك وسيتم الرد عليك من قِبل المسؤولين في أقرب وقت ممكن.",
+            color=discord.Color.dark_theme(),
+        )
         if PANEL_IMAGE_URL:
-            content_parts.append(PANEL_IMAGE_URL)
-        message_content = "\n".join(content_parts)
+            welcome_embed.set_image(url=PANEL_IMAGE_URL)
 
-        await ticket_channel.send(content=message_content, view=TicketActionsView())
+        ticket_message = await ticket_channel.send(
+            content=mention_line, embed=welcome_embed, view=TicketActionsView()
+        )
+        try:
+            await ticket_message.pin()
+        except discord.HTTPException:
+            pass
 
         await interaction.response.edit_message(content=f"تم فتح تذكرتك هون: {ticket_channel.mention}", view=None)
 
