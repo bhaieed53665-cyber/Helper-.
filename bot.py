@@ -133,7 +133,7 @@ async def generate_html_transcript(channel: discord.TextChannel) -> discord.File
 
 
 # =========================================================
-# ==================== أزرار / فيوهات الحذف والاستلام =========
+# ==================== أزرار / فيوهات الحذف واستلام التذكرة =========
 # =========================================================
 
 class TicketActionsView(discord.ui.View):
@@ -186,7 +186,7 @@ class TicketActionsView(discord.ui.View):
         await asyncio.sleep(5)
         await channel.delete()
 
-    # الزر الثاني (اليسار): استلام التذكرة وقفلها عن باقي الإداريين
+    # الزر الثاني (اليسار): استلام التذكرة وقفلها عن بقية الإداريين
     @discord.ui.button(style=discord.ButtonStyle.secondary, emoji=CLAIM_EMOJI, custom_id="ticket_claim")
     async def claim_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         channel = interaction.channel
@@ -203,7 +203,7 @@ class TicketActionsView(discord.ui.View):
                 await interaction.response.send_message("لا تملك صلاحية استلام التذاكر.", ephemeral=True)
                 return
 
-        # تعديل الصلاحيات: إزالة رؤية التذكرة عن رتبة الـ Staff وإتاحتها للمستلم فقط (الأدمنية يحتفظون بالصلاحية تلقائياً)
+        # إزالة رؤية التذكرة عن رتبة Staff العامة وإتاحتها للمستلم فقط
         staff_role = guild.get_role(STAFF_ROLE_ID)
         if staff_role:
             await channel.set_permissions(staff_role, view_channel=False)
@@ -270,7 +270,8 @@ class TicketTypeSelect(discord.ui.Select):
                     view_channel=True, send_messages=True, read_message_history=True
                 )
 
-        channel_name = f"🎫・{ticket_counter:04d}"
+        # التسمية برقم متسلسل مباشر (🎫・1 ثم 🎫・2)
+        channel_name = f"🎫・{ticket_counter}"
         ticket_counter += 1
 
         topic = f"type:{value}|user:{user.id}"
