@@ -133,7 +133,7 @@ async def generate_html_transcript(channel: discord.TextChannel) -> discord.File
 
 
 # =========================================================
-# ==================== أزرار / فيوهات الحذف واستلام التذكرة =========
+# ==================== أزرار / فيوهات الحذف والاستلام =========
 # =========================================================
 
 class TicketActionsView(discord.ui.View):
@@ -186,7 +186,7 @@ class TicketActionsView(discord.ui.View):
         await asyncio.sleep(5)
         await channel.delete()
 
-    # الزر الثاني (اليسار): استلام التذكرة وقفلها عن بقية الإداريين
+    # الزر الثاني (اليسار): استلام التذكرة وقفلها عن باقي الإداريين
     @discord.ui.button(style=discord.ButtonStyle.secondary, emoji=CLAIM_EMOJI, custom_id="ticket_claim")
     async def claim_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         channel = interaction.channel
@@ -212,7 +212,9 @@ class TicketActionsView(discord.ui.View):
 
         button.disabled = True
         await interaction.message.edit(view=self)
-        await interaction.response.send_message(f"تم استلام هذه التذكرة وإخفاؤها عن بقية طاقم الدعم بواسطة {interaction.user.mention}.")
+        
+        # النص الذي يظهر في الروم بعد الضغط على الاستلام
+        await interaction.response.send_message(f"تم استلام هذه التذكرة من قبل {interaction.user.mention}.")
 
         log_channel = guild.get_channel(LOG_CHANNEL_ID)
         if log_channel:
