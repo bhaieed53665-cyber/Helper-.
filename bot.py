@@ -1,11 +1,12 @@
 # -*- coding: utf-8 -*-
 """
 بوت تذاكر عبر ديسكورد - دعم ميلاد
-مبني باستخدام discord.py مع نظام سجلات ورابط لمعاينة المحادثة
+مبني باستخدام discord.py مع نظام سجلات (Logs) كامل ورابط مباشر لقناة كل تذكرة
 """
 
 import os
 import io
+import logging
 import asyncio
 import datetime
 import discord
@@ -43,7 +44,7 @@ TICKET_ICON_EMOJI = os.getenv("TICKET_ICON_EMOJI", "<:linkssssss:153604056411236
 CLAIM_EMOJI = os.getenv("CLAIM_EMOJI", "<:claim:1536007978090500096>")
 DELETE_EMOJI = os.getenv("DELETE_EMOJI", "<:delete:1536007930325770340>")
 
-# عداد التذاكر التلقائي
+# عداد التذاكر التلقائي (يتم اعادة ضبطه تلقائيا عند الاقلاع بالاعتماد على القنوات الموجودة فعلا)
 ticket_counter = 1
 
 if not BOT_TOKEN:
@@ -52,6 +53,22 @@ if not BOT_TOKEN:
 # =========================================================
 # ===================== نهاية الاعدادات ====================
 # =========================================================
+
+# =========================================================
+# ========================= اللوق =========================
+# نظام تسجيل احترافي يطبع كل الاحداث والاخطاء في الكونسول
+# (تقدر تشوفها مباشرة من صفحة Logs بمنصة Railway)
+# =========================================================
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s | %(levelname)-8s | %(name)s | %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
+logger = logging.getLogger("melaad_tickets")
+# نخفت شوية ضجيج مكتبة discord الداخلية ونبقي فقط التحذيرات والاخطاء
+logging.getLogger("discord").setLevel(logging.WARNING)
+
 
 intents = discord.Intents.default()
 intents.members = True
@@ -79,6 +96,25 @@ def parse_topic(topic: str):
             k, v = part.split(":", 1)
             data[k.strip()] = v.strip()
     return data
+
+
+def ticket_jump_url(channel: discord.TextChannel) -> str:
+    """رابط مباشر يودي لقناة التذكرة بالضغط عليه"""
+    return f"https://discord.com/channels/{channel.guild.id}/{channel.id}"
+
+
+async def safe_log_send(guild: discord.Guild, **send_kwargs):
+    """ارسال رسالة الى قناة اللوق مع تسجيل اي خطا بدل ما يوقف تنفيذ باقي الكود"""
+    log_channel = guild.get_channel(LOG_CHANNEL_ID)
+    if not log_channel:
+        logger.warning("قناة اللوق (LOG_CHANNEL_ID=%s) غير موجودة او البوت لا يراها", LOG_CHANNEL_ID)
+        return
+    try:
+        await log_channel.send(**send_kwargs)
+    except discord.Forbidden:
+        logger.error("لا يملك البوت صلاحية الارسال داخل قناة اللوق")
+    except Exception:
+        logger.exception("فشل ارسال رسالة الى قناة اللوق")
 
 
 async def generate_html_transcript(channel: discord.TextChannel) -> discord.File:
@@ -132,7 +168,7 @@ async def generate_html_transcript(channel: discord.TextChannel) -> discord.File
     return discord.File(file_bytes, filename=f"transcript-{channel.name}.html")
 
 
-async def auto_delete_ticket_task(channel: discord.TextChannel, owner_id: int):
+async def auto_delete_ticket_task(channel_id: int, guild_id: int, owner_id: int):
     """
     تنتظر هذه الدالة مدة ساعتين ثم تتحقق مما اذا كان صاحب التذكرة نفسه
     قد ارسل اي رسالة داخل القناة، بغض النظر عن ردود فريق الدعم.
@@ -141,8 +177,9 @@ async def auto_delete_ticket_task(channel: discord.TextChannel, owner_id: int):
     await asyncio.sleep(7200)  # الانتظار ساعتين (7200 ثانية)
 
     try:
-        current_channel = bot.get_channel(channel.id)
+        current_channel = bot.get_channel(channel_id)
         if not current_channel:
+            logger.info("تخطي الحذف التلقائي للقناة %s لانها غير موجودة اصلا", channel_id)
             return
 
         owner_replied = False
@@ -151,13 +188,53 @@ async def auto_delete_ticket_task(channel: discord.TextChannel, owner_id: int):
                 owner_replied = True
                 break
 
-        # اذا لم يرسل صاحب التذكرة اي رسالة خلال الساعتين يتم الحذف بصمت وبدون سجل
         if not owner_replied:
-            await current_channel.delete()
+            logger.info("حذف تلقائي للتذكرة %s بسبب عدم رد صاحبها خلال ساعتين", current_channel.name)
+            await current_channel.delete(reason="حذف تلقائي - لم يرد صاحب التذكرة خلال ساعتين")
+
+            guild = bot.get_guild(guild_id)
+            if guild:
+                embed = discord.Embed(
+                    title="حذف تلقائي لتذكرة",
+                    description="تم حذف هذه التذكرة تلقائيا لعدم رد صاحبها خلال ساعتين من فتحها",
+                    color=discord.Color.orange(),
+                    timestamp=datetime.datetime.utcnow(),
+                )
+                embed.add_field(name="اسم التذكرة", value=current_channel.name, inline=True)
+                embed.add_field(name="صاحب التذكرة", value=f"<@{owner_id}>", inline=True)
+                await safe_log_send(guild, embed=embed)
+        else:
+            logger.info("لا حذف تلقائي للتذكرة %s لان صاحبها رد بالفعل", current_channel.name)
     except discord.NotFound:
         pass
     except Exception:
-        pass
+        logger.exception("خطا غير متوقع اثناء تنفيذ مهمة الحذف التلقائي للقناة %s", channel_id)
+
+
+def next_ticket_number(guild: discord.Guild) -> int:
+    """
+    يحسب رقم التذكرة التالي بالاعتماد على القنوات الموجودة فعليا
+    بدلا من الاعتماد فقط على متغير بالذاكرة قد يتصفر عند اعادة تشغيل البوت
+    """
+    max_number = 0
+    channels = guild.channels
+    for ch in channels:
+        if isinstance(ch, discord.TextChannel) and ch.name.startswith("🎫・"):
+            suffix = ch.name.split("🎫・", 1)[-1]
+            if suffix.isdigit():
+                max_number = max(max_number, int(suffix))
+    return max_number + 1
+
+
+def find_open_ticket(guild: discord.Guild, user_id: int):
+    """يبحث عن تذكرة مفتوحة حاليا لنفس العضو لمنع فتح اكثر من تذكرة بنفس الوقت"""
+    for ch in guild.channels:
+        if not isinstance(ch, discord.TextChannel):
+            continue
+        data = parse_topic(ch.topic)
+        if data.get("user") == str(user_id):
+            return ch
+    return None
 
 
 # =========================================================
@@ -186,11 +263,11 @@ class ConfirmDeleteView(discord.ui.View):
         button.disabled = True
         await interaction.response.edit_message(content="جاري حفظ السجل وحذف التذكرة خلال خمس ثواني", view=None)
 
-        log_channel = interaction.guild.get_channel(LOG_CHANNEL_ID)
-        if log_channel:
+        owner_id = data.get("user")
+        owner_mention = f"<@{owner_id}>" if owner_id else "غير معروف"
+
+        try:
             transcript_file = await generate_html_transcript(channel)
-            owner_id = data.get("user")
-            owner_mention = f"<@{owner_id}>" if owner_id else "غير معروف"
 
             embed = discord.Embed(
                 title="تم اغلاق التذكرة وحفظ السجل",
@@ -200,12 +277,21 @@ class ConfirmDeleteView(discord.ui.View):
             embed.add_field(name="اسم التذكرة", value=channel.name, inline=True)
             embed.add_field(name="صاحب التذكرة", value=owner_mention, inline=True)
             embed.add_field(name="بواسطة", value=interaction.user.mention, inline=True)
+            embed.add_field(name="رابط التذكرة", value=f"[اضغط هنا]({ticket_jump_url(channel)})", inline=False)
 
-            # يتم ارسال السجل مع ملف المحادثة نفسه والابقاء عليه في القناة
-            await log_channel.send(embed=embed, file=transcript_file)
+            # يتم ارسال السجل مع ملف المحادثة نفسه والابقاء عليه في القناة (بدون حذفه)
+            await safe_log_send(interaction.guild, embed=embed, file=transcript_file)
+            logger.info("تم اغلاق التذكرة %s بواسطة %s", channel.name, interaction.user)
+        except Exception:
+            logger.exception("فشل انشاء او ارسال سجل التذكرة %s قبل حذفها", channel.name)
 
         await asyncio.sleep(5)
-        await channel.delete()
+        try:
+            await channel.delete(reason=f"تم الاغلاق بواسطة {interaction.user}")
+        except discord.NotFound:
+            pass
+        except Exception:
+            logger.exception("فشل حذف قناة التذكرة %s", channel.name)
 
 
 # =========================================================
@@ -253,27 +339,45 @@ class TicketActionsView(discord.ui.View):
                 await interaction.response.send_message("لا تملك صلاحية استلام التذكرة", ephemeral=True)
                 return
 
-        staff_role = guild.get_role(STAFF_ROLE_ID)
-        if staff_role:
-            await channel.set_permissions(staff_role, view_channel=False)
+        # نؤكد استلام التفاعل فورا قبل اي طلب بطيء لتفادي خطا عدم الاستجابة
+        await interaction.response.defer()
 
-        await channel.set_permissions(interaction.user, view_channel=True, send_messages=True, read_message_history=True)
+        try:
+            staff_role = guild.get_role(STAFF_ROLE_ID)
+            if staff_role:
+                await channel.set_permissions(staff_role, view_channel=False)
+
+            await channel.set_permissions(interaction.user, view_channel=True, send_messages=True, read_message_history=True)
+        except discord.Forbidden:
+            logger.error("صلاحيات ناقصة عند محاولة استلام التذكرة %s من قبل %s", channel.name, interaction.user)
+            await interaction.followup.send(
+                "لا يملك البوت الصلاحيات الكافية لتعديل صلاحيات هذه القناة، تاكد من صلاحية Manage Channels وترتيب رتبة البوت",
+                ephemeral=True
+            )
+            return
+        except Exception:
+            logger.exception("خطا غير متوقع اثناء استلام التذكرة %s", channel.name)
+            await interaction.followup.send("حدث خطا غير متوقع اثناء استلام التذكرة", ephemeral=True)
+            return
 
         button.disabled = True
-        await interaction.message.edit(view=self)
+        try:
+            await interaction.message.edit(view=self)
+        except Exception:
+            logger.exception("فشل تعديل زر الاستلام بعد استلام التذكرة %s", channel.name)
 
-        await interaction.response.send_message(f"تم استلام هذه التذكرة من قبل {interaction.user.mention}")
+        await interaction.followup.send(f"تم استلام هذه التذكرة من قبل {interaction.user.mention}")
+        logger.info("تم استلام التذكرة %s من قبل %s", channel.name, interaction.user)
 
-        log_channel = guild.get_channel(LOG_CHANNEL_ID)
-        if log_channel:
-            embed = discord.Embed(
-                title="تم استلام التذكرة وقفلها",
-                color=discord.Color.blue(),
-                timestamp=datetime.datetime.utcnow()
-            )
-            embed.add_field(name="القناة", value=channel.mention, inline=True)
-            embed.add_field(name="المستلم", value=interaction.user.mention, inline=True)
-            await log_channel.send(embed=embed)
+        embed = discord.Embed(
+            title="تم استلام التذكرة وقفلها",
+            color=discord.Color.blue(),
+            timestamp=datetime.datetime.utcnow()
+        )
+        embed.add_field(name="القناة", value=channel.mention, inline=True)
+        embed.add_field(name="المستلم", value=interaction.user.mention, inline=True)
+        embed.add_field(name="رابط التذكرة", value=f"[اضغط هنا]({ticket_jump_url(channel)})", inline=False)
+        await safe_log_send(guild, embed=embed)
 
 
 # =========================================================
@@ -296,6 +400,17 @@ class TicketTypeSelect(discord.ui.Select):
         value = self.values[0]
         guild = interaction.guild
         user = interaction.user
+
+        # نؤكد استلام التفاعل فورا لان انشاء القناة قد ياخذ وقتا او يفشل
+        await interaction.response.defer(ephemeral=True)
+
+        existing_ticket = find_open_ticket(guild, user.id)
+        if existing_ticket:
+            await interaction.edit_original_response(
+                content=f"لديك تذكرة مفتوحة بالفعل هنا {existing_ticket.mention}",
+                view=None
+            )
+            return
 
         category = None
         if TICKET_CATEGORY_ID:
@@ -320,17 +435,34 @@ class TicketTypeSelect(discord.ui.Select):
                     view_channel=True, send_messages=True, read_message_history=True
                 )
 
-        channel_name = f"🎫・{ticket_counter}"
-        ticket_counter += 1
+        channel_number = max(ticket_counter, next_ticket_number(guild))
+        channel_name = f"🎫・{channel_number}"
+        ticket_counter = channel_number + 1
 
         topic = f"type:{value}|user:{user.id}"
 
-        ticket_channel = await guild.create_text_channel(
-            name=channel_name,
-            category=category,
-            overwrites=overwrites,
-            topic=topic,
-        )
+        try:
+            ticket_channel = await guild.create_text_channel(
+                name=channel_name,
+                category=category,
+                overwrites=overwrites,
+                topic=topic,
+                reason=f"فتح تذكرة جديدة بواسطة {user}",
+            )
+        except discord.Forbidden:
+            logger.error("صلاحيات ناقصة عند انشاء قناة تذكرة جديدة للعضو %s", user)
+            await interaction.edit_original_response(
+                content="لا يملك البوت الصلاحيات الكافية لانشاء قناة تذكرة جديدة، يرجى مراجعة الادارة",
+                view=None
+            )
+            return
+        except Exception:
+            logger.exception("فشل انشاء قناة تذكرة جديدة للعضو %s", user)
+            await interaction.edit_original_response(
+                content="حدث خطا غير متوقع اثناء انشاء التذكرة، حاول مرة اخرى لاحقا",
+                view=None
+            )
+            return
 
         staff_role = guild.get_role(STAFF_ROLE_ID)
         mention_line = f"{staff_role.mention if staff_role else 'فريق الدعم'} | {user.mention}"
@@ -342,30 +474,33 @@ class TicketTypeSelect(discord.ui.Select):
         if PANEL_IMAGE_URL:
             welcome_embed.set_image(url=PANEL_IMAGE_URL)
 
-        ticket_message = await ticket_channel.send(
-            content=mention_line, embed=welcome_embed, view=TicketActionsView()
-        )
         try:
+            ticket_message = await ticket_channel.send(
+                content=mention_line, embed=welcome_embed, view=TicketActionsView()
+            )
             await ticket_message.pin()
         except discord.HTTPException:
-            pass
+            logger.warning("لم يتم تثبيت رسالة الترحيب داخل التذكرة %s", ticket_channel.name)
+        except Exception:
+            logger.exception("فشل ارسال رسالة الترحيب داخل التذكرة %s", ticket_channel.name)
 
-        log_channel = guild.get_channel(LOG_CHANNEL_ID)
-        if log_channel:
-            embed = discord.Embed(
-                title="تم فتح تذكرة جديدة",
-                color=discord.Color.green(),
-                timestamp=datetime.datetime.utcnow()
-            )
-            embed.add_field(name="صاحب التذكرة", value=user.mention, inline=True)
-            embed.add_field(name="النوع", value=value, inline=True)
-            embed.add_field(name="القناة", value=ticket_channel.mention, inline=True)
-            await log_channel.send(embed=embed)
+        embed = discord.Embed(
+            title="تم فتح تذكرة جديدة",
+            color=discord.Color.green(),
+            timestamp=datetime.datetime.utcnow()
+        )
+        embed.add_field(name="صاحب التذكرة", value=user.mention, inline=True)
+        embed.add_field(name="النوع", value=value, inline=True)
+        embed.add_field(name="القناة", value=ticket_channel.mention, inline=True)
+        embed.add_field(name="رابط التذكرة", value=f"[اضغط هنا]({ticket_jump_url(ticket_channel)})", inline=False)
+        await safe_log_send(guild, embed=embed)
 
-        await interaction.response.edit_message(content=f"تم فتح تذكرتك هنا {ticket_channel.mention}", view=None)
+        logger.info("تم فتح تذكرة جديدة (%s) من النوع %s بواسطة %s", ticket_channel.name, value, user)
+
+        await interaction.edit_original_response(content=f"تم فتح تذكرتك هنا {ticket_channel.mention}", view=None)
 
         # البدء بمراقبة الحذف التلقائي بعد ساعتين من عدم رد صاحب التذكرة
-        asyncio.create_task(auto_delete_ticket_task(ticket_channel, user.id))
+        asyncio.create_task(auto_delete_ticket_task(ticket_channel.id, guild.id, user.id))
 
 
 class TicketTypeView(discord.ui.View):
@@ -398,6 +533,7 @@ async def panel(interaction: discord.Interaction):
 
     await interaction.channel.send(content=content, view=TicketPanelView())
     await interaction.response.send_message("تم ارسال اللوحة", ephemeral=True)
+    logger.info("تم ارسال لوحة فتح التذاكر بواسطة %s في القناة %s", interaction.user, interaction.channel)
 
 
 @panel.error
@@ -428,16 +564,19 @@ async def memberadd(interaction: discord.Interaction, member: discord.Member):
     try:
         await channel.set_permissions(member, view_channel=True, send_messages=True, read_message_history=True)
     except discord.Forbidden:
+        logger.error("صلاحيات ناقصة عند اضافة العضو %s الى التذكرة %s", member, channel.name)
         await interaction.followup.send(
             "لا يملك البوت الصلاحيات الكافية لاضافة هذا العضو الى القناة، تاكد من صلاحية Manage Channels وترتيب رتبة البوت",
             ephemeral=True
         )
         return
     except Exception:
+        logger.exception("خطا غير متوقع اثناء اضافة العضو %s الى التذكرة %s", member, channel.name)
         await interaction.followup.send("حدث خطا غير متوقع اثناء اضافة العضو الى التذكرة", ephemeral=True)
         return
 
     await interaction.followup.send(f"تم اضافة {member.mention} الى التذكرة")
+    logger.info("تم اضافة العضو %s الى التذكرة %s بواسطة %s", member, channel.name, interaction.user)
 
 
 @memberadd.error
@@ -449,11 +588,38 @@ async def memberadd_error(interaction: discord.Interaction, error):
 
 
 # =========================================================
+# ============= معالج اخطاء عام لكل اوامر السلاش =============
+# اي خطا غير متوقع بأي امر (حتى لو ما فيه معالج خاص فيه)
+# يتم تسجيله باللوق والرد على المستخدم بدل ما يعلق بصمت
+# =========================================================
+
+@bot.tree.error
+async def on_app_command_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
+    command_name = interaction.command.name if interaction.command else "غير معروف"
+    logger.error("خطا غير متوقع في الامر '%s' من قبل %s: %s", command_name, interaction.user, error, exc_info=error)
+
+    try:
+        if interaction.response.is_done():
+            await interaction.followup.send("حدث خطا غير متوقع اثناء تنفيذ الامر", ephemeral=True)
+        else:
+            await interaction.response.send_message("حدث خطا غير متوقع اثناء تنفيذ الامر", ephemeral=True)
+    except Exception:
+        logger.exception("فشل حتى ارسال رسالة الخطا للمستخدم")
+
+
+@bot.event
+async def on_error(event_method, *args, **kwargs):
+    logger.exception("خطا غير متوقع داخل الحدث '%s'", event_method)
+
+
+# =========================================================
 # ========================= الاقلاع =========================
 # =========================================================
 
 @bot.event
 async def on_ready():
+    global ticket_counter
+
     bot.add_view(TicketPanelView())
     bot.add_view(TicketTypeView())
     bot.add_view(TicketActionsView())
@@ -465,7 +631,12 @@ async def on_ready():
     else:
         await bot.tree.sync()
 
-    print(f"تم تسجيل الدخول كـ {bot.user}")
+    # اعادة ضبط عداد التذاكر بالاعتماد على القنوات الموجودة فعليا بكل السيرفرات
+    for guild in bot.guilds:
+        ticket_counter = max(ticket_counter, next_ticket_number(guild))
+
+    logger.info("تم تسجيل الدخول كـ %s (معرف: %s)", bot.user, bot.user.id)
+    logger.info("عدد السيرفرات المتصلة: %s | عداد التذاكر الحالي: %s", len(bot.guilds), ticket_counter)
 
 
 if __name__ == "__main__":
